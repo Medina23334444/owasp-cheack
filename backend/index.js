@@ -3,6 +3,7 @@ const cookieParser = require('cookie-parser');
 const Prometheus = require('prom-client');
 const promBundle = require("express-prom-bundle");
 const axios = require('axios');
+const rateLimit = require('express-rate-limit'); // [SEGURIDAD] 1. Importar librería
 
 const app = express();
 
@@ -10,6 +11,15 @@ const auth = require('./auth');
 const users = require('./users');
 const courses = require('./courses');
 const authors = require('./authors');
+
+// [SEGURIDAD] 2. Configurar el limitador
+const loginLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000, 
+    max: 5, 
+    message: { error: "Demasiados intentos. Por seguridad, inténtalo más tarde." },
+    standardHeaders: true,
+    legacyHeaders: false,
+});
 
 const dbConfig = {
   host: process.env.POSTGRES_HOST,
@@ -24,11 +34,7 @@ app.use(express.urlencoded({extended: true}));
 app.use(cookieParser());
 
 const toJSON = (str) => {
-  try {
-    return JSON.parse(str);
-  } catch (e) {
-    return null;
-  }
+  try { return JSON.parse(str); } catch (e) { return null; }
 }
 
 const metricsMiddleware = promBundle({
@@ -37,9 +43,7 @@ const metricsMiddleware = promBundle({
   includeStatusCode: true,
   includeUp: true,
   customLabels: {project_name: 'webapp', project_type: 'test_metrics_labels'},
-  promClient: {
-      collectDefaultMetrics: {}
-  }
+  promClient: { collectDefaultMetrics: {} }
 });
 
 const metricsAuthMiddleware = (req, res, next) => {
@@ -60,8 +64,10 @@ const metricsAuthMiddleware = (req, res, next) => {
 };
 
 app.use('/metrics', metricsAuthMiddleware);
-
 app.use(metricsMiddleware);
+
+// [SEGURIDAD] 3. Aplicar protección a la ruta de login
+app.use('/login', loginLimiter); 
 
 const httpRequestsTotal = new Prometheus.Counter({
   name: 'http_requests_total',
